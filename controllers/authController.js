@@ -1,7 +1,7 @@
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
-import { poolPromise } from './db.js';
-import { registrarLog } from './logger.js'; // Tu función de logging forense
+import { poolPromise } from '../config/db.js';
+import { registrarEvento } from '../config/logger.js';
 
 export const login = async (req, res) => {
     const { email, password } = req.body;
@@ -15,23 +15,28 @@ export const login = async (req, res) => {
 
         const user = result.recordset[0];
 
+        // Verificación con hash de contraseña 
         if (user && await bcrypt.compare(password, user.password_hash)) {
-            // Acción Crítica: Inicio de sesión exitoso [cite: 121]
             const token = jwt.sign(
-                { id: user.id_ajustador, role: user.rol }, 
+                { id: user.id_ajustador, rol: user.rol }, 
                 process.env.JWT_SECRET, 
-                { expiresIn: '2h' }
+                { expiresIn: '4h' }
             );
 
-            await registrarLog(user.id_ajustador, 'Login', 'éxito', ip);
+            await registrarEvento({
+                usuarioId: user.id_ajustador,
+                accion: 'Inicio de Sesión',
+                resultado: 'éxito',
+                ip
+            });
+
             res.json({ token, user: { nombre: user.nombre, rol: user.rol } });
         } else {
-            // Manejo correcto de excepciones: Evento de seguridad [cite: 85, 92]
-            await registrarLog(null, 'Intento de Login Fallido', 'error', ip);
-            res.status(401).json({ message: "Credenciales inválidas" });
+            await registrarEvento({ accion: 'Intento Login Fallido', resultado: 'error', ip, detalles: `Email: ${email}` });
+            res.status(401).json({ message: "Acceso denegado" });
         }
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: "Error interno del servidor" });
+        // Manejo correcto de excepciones [cite: 85, 88]
+        res.status(500).json({ message: "Error en el servidor central" });
     }
 };
