@@ -17,7 +17,7 @@ const sqlConfig = {
 };
 
 export const login = async (req, res) => {
-    const { email, password } = req.body;
+    const { identificador, password } = req.body;
     const ip = req.ip || req.headers['x-forwarded-for'] || '0.0.0.0';
 
     try {
@@ -28,7 +28,7 @@ export const login = async (req, res) => {
         // 1. Intentar buscar en AJUSTADORES (usa numero_empleado o email si lo agregaste)
         // Nota: Basado en tu código previo, ajustadores usa 'numero_empleado' como identificador
         const resultAjustador = await pool.request()
-            .input('identificador', sql.VarChar, email) 
+            .input('identificador', sql.VarChar, identificador) 
             .query('SELECT * FROM ajustadores WHERE (numero_empleado = @identificador OR nombre = @identificador) AND is_deleted = 0');
 
         if (resultAjustador.recordset.length > 0) {
@@ -37,7 +37,7 @@ export const login = async (req, res) => {
         } else {
             // 2. Si no es ajustador, buscar en CLIENTES
             const resultCliente = await pool.request()
-                .input('email', sql.NVarChar, email)
+                .input('email', sql.NVarChar, identificador)
                 .query('SELECT * FROM clientes WHERE email_cifrado = @email AND is_deleted = 0');
 
             if (resultCliente.recordset.length > 0) {
@@ -70,8 +70,10 @@ export const login = async (req, res) => {
             });
 
             res.json({ 
+                success: true,
                 token, 
                 user: { 
+                    id: userId,
                     nombre: userName, 
                     rol: userRol,
                     tipo: tipoUsuario
@@ -84,7 +86,7 @@ export const login = async (req, res) => {
                 accion: 'Intento Login Fallido', 
                 resultado: 'error', 
                 ip: ip, 
-                detalles: `Credenciales inválidas para: ${email}` 
+                detalles: `Credenciales inválidas para: ${identificador}` 
             });
             res.status(401).json({ message: "Acceso denegado: Credenciales incorrectas" });
         }
@@ -116,5 +118,33 @@ export const registrar = async (req, res) => {
     } catch (error) {
         console.error("Error en registro de cliente:", error);
         res.status(500).json({ message: "Error al conectar con el servidor en el puerto 5000" }); // Mensaje consistente con tu alerta
+    }
+};
+
+// Obtener logs de auditoría forense
+export const getLogs = async (req, res) => {
+    try {
+        let pool = await sql.connect(sqlConfig);
+        
+        // Consultamos los últimos 50 logs para no saturar la red, 
+        // ordenados por la fecha más reciente
+        const result = await pool.request()
+            .query(`
+                SELECT TOP 50 
+                    id_log, 
+                    usuario_ejecuta, 
+                    fecha_hora_utc, 
+                    accion_realizada, 
+                    resultado, 
+                    ip_origen AS ip_origin, -- Alias para que coincida con tu interfaz de React
+                    modulo_responsable 
+                FROM logs_forenses 
+                ORDER BY fecha_hora_utc DESC
+            `);
+
+        res.json(result.recordset);
+    } catch (err) {
+        console.error("Error al obtener logs forenses:", err);
+        res.status(500).json({ message: "Error interno del servidor al recuperar auditoría" });
     }
 };

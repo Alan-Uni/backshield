@@ -8,6 +8,7 @@ import { verificarToken } from './middleware/authMiddleware.js';
 import { crearAjustador } from './controllers/ajustadorController.js';
 import { getAjustadores } from './controllers/adminController.js';
 import { getClientes } from './controllers/adminController.js';
+import { getLogs } from './controllers/authController.js';
 
 const app = express();
 app.use(cors());
@@ -19,6 +20,7 @@ app.post('/api/auth/register', registrar);
 app.get('/api/auth/ajustadores', getAjustadores);
 app.get('/api/auth/clientes', getClientes);
 app.post('/api/auth/ajustadores', crearAjustador); // Ruta para crear ajustadores, también protegida en producción
+app.get('/api/auth/logs', getLogs); // Nueva ruta para obtener logs forenses, protegida con JWT
 
 // Rutas Protegidas (Requieren JWT)
 app.get('/api/incidentes', verificarToken, obtenerIncidentes);
