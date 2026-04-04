@@ -12,6 +12,7 @@ import { getAjustadores, getClientes } from './controllers/adminController.js';
 // Herramientas de Google Cloud Vertex AI
 import { PredictionServiceClient } from '@google-cloud/aiplatform';
 import { helpers } from '@google-cloud/aiplatform';
+import { getLogs } from './controllers/authController.js';
 
 const app = express();
 
@@ -110,6 +111,8 @@ app.post('/api/auth/register', registrar);
 app.get('/api/auth/ajustadores', getAjustadores);
 app.get('/api/auth/clientes', getClientes);
 app.post('/api/auth/ajustadores', crearAjustador);
+app.post('/api/auth/ajustadores', crearAjustador); // Ruta para crear ajustadores, también protegida en producción
+app.get('/api/auth/logs', getLogs); // Nueva ruta para obtener logs forenses, protegida con JWT
 
 // --- RUTAS DE INCIDENTES (Protegidas con verificarToken) ---
 app.get('/api/incidentes', verificarToken, obtenerIncidentes);
