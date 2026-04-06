@@ -2,7 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import 'dotenv/config';
 
-// Importación de controladores
+// Importación de controladores y middleware
 import { login, registrar } from './controllers/authController.js';
 import { obtenerIncidentes, crearEvidencia } from './controllers/incidentController.js';
 import { verificarToken } from './middleware/authMiddleware.js';
