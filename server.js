@@ -4,7 +4,7 @@ import 'dotenv/config';
 
 // Importación de controladores y middleware
 import { login, registrar } from './controllers/authController.js';
-import { obtenerIncidentes, crearEvidencia } from './controllers/incidentController.js';
+import { obtenerIncidentes, crearEvidencia, crearReclamacionCompleta } from './controllers/incidentController.js';
 import { verificarToken } from './middleware/authMiddleware.js';
 import { crearAjustador } from './controllers/ajustadorController.js';
 import { getAjustadores, getClientes } from './controllers/adminController.js';
@@ -23,9 +23,9 @@ app.use(cors({
     allowedHeaders: ['Content-Type', 'x-auth-token']
 }));
 
-// Límite de 10mb para soportar el envío de imágenes en Base64
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ limit: '50mb', extended: true }));
+// Límite de 100000mb para soportar el envío de imágenes en Base64
+app.use(express.json({ limit: '1500mb' }));
+app.use(express.urlencoded({ limit: '1500mb', extended: true }));
 
 // --- RUTA DE ANÁLISIS IA (Vertex AI) ---
 app.post('/api/ia/analizar', verificarToken, async (req, res) => {
@@ -113,6 +113,7 @@ app.get('/api/auth/clientes', getClientes);
 app.post('/api/auth/ajustadores', crearAjustador);
 app.post('/api/auth/ajustadores', crearAjustador); // Ruta para crear ajustadores, también protegida en producción
 app.get('/api/auth/logs', getLogs); // Nueva ruta para obtener logs forenses, protegida con JWT
+app.post('/api/incidentes/crear', verificarToken, crearReclamacionCompleta);
 
 // --- RUTAS DE INCIDENTES (Protegidas con verificarToken) ---
 app.get('/api/incidentes', verificarToken, obtenerIncidentes);
