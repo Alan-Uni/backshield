@@ -24,8 +24,8 @@ app.use(cors({
 }));
 
 // Límite de 10mb para soportar el envío de imágenes en Base64
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ limit: '50mb', extended: true }));
+app.use(express.json({ limit: '1000mb' }));
+app.use(express.urlencoded({ limit: '1000mb', extended: true }));
 
 // --- RUTA DE ANÁLISIS IA (Vertex AI) ---
 app.post('/api/ia/analizar', verificarToken, async (req, res) => {
