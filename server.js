@@ -24,7 +24,7 @@ app.use(cors({
     allowedHeaders: ['Content-Type', 'x-auth-token']
 }));
 
-// Límite de 100000mb para soportar el envío de imágenes en Base64
+// Límite de 10mb para soportar el envío de imágenes en Base64
 app.use(express.json({ limit: '1500mb' }));
 app.use(express.urlencoded({ limit: '1500mb', extended: true }));
 
