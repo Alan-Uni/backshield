@@ -8,17 +8,18 @@ import sql from 'mssql';
 export const obtenerIncidentes = async (req, res) => {
     try {
         const pool = await poolPromise;
-        // Solo traemos lo que no esté borrado lógicamente
         const result = await pool.request()
             .query(`
                 SELECT 
                     id_reclamacion, 
-                    referencia_poliza, 
+                    id_poliza, 
                     fecha_reclamacion, 
                     monto_reclamado, 
                     score_confianza_ia, 
                     veredicto_ia, 
-                    estado_gestion 
+                    estado_gestion,
+                    tipo_siniestro,
+                    descripcion_siniestro
                 FROM reclamaciones 
                 WHERE is_deleted = 0
                 ORDER BY fecha_reclamacion DESC
@@ -32,95 +33,127 @@ export const obtenerIncidentes = async (req, res) => {
 };
 
 /**
- * Crear una reclamación completa (Flujo del Ajustador)
- * Esta función recibe los datos del formulario y el resultado de la IA
+ * Obtener Mis reclamaciones (Bandeja del Cliente)
  */
-export const crearReclamacionCompleta = async (req, res) => {
-    const { 
-        referencia_poliza, 
-        monto_reclamado, 
-        score_confianza_ia, 
-        veredicto_ia 
-    } = req.body;
-    
-    // El id_ajustador viene del token decodificado por el middleware verificarToken
-    const id_ajustador = req.usuario.id; 
+
+export const obtenerMisReclamaciones = async (req, res) => {
+    const id_cliente = req.usuario.id; // Extraído del token por el middleware
 
     try {
         const pool = await poolPromise;
-        
-        // 1. Insertar la reclamación principal
         const result = await pool.request()
-            .input('ajustador', sql.UniqueIdentifier, id_ajustador)
-            .input('poliza', sql.VarChar(50), referencia_poliza)
+            .input('clienteId', sql.UniqueIdentifier, id_cliente)
+            .query(`
+                SELECT 
+                    r.id_reclamacion, 
+                    r.tipo_siniestro, 
+                    r.fecha_reclamacion, 
+                    r.estado_reclamacion, 
+                    r.id_poliza,
+                    r.veredicto_ia
+                FROM reclamaciones r
+                INNER JOIN polizas p ON r.id_poliza = p.id_poliza
+                WHERE p.id_cliente = @clienteId AND r.is_deleted = 0
+                ORDER BY r.fecha_reclamacion DESC
+            `);
+        
+        res.json({ success: true, data: result.recordset });
+    } catch (error) {
+        res.status(500).json({ success: false, message: "Error al obtener tus reclamos" });
+    }
+};
+
+/**
+ * Crear una reclamación completa (Flujo Híbrido: Cliente o Ajustador)
+ */
+export const crearReclamacionCompleta = async (req, res) => {
+    const { 
+        monto_reclamado, 
+        score_confianza_ia, 
+        veredicto_ia,
+        tipo_siniestro,       // <--- NUEVO
+        descripcion_siniestro, // <--- NUEVO
+        referencia_poliza 
+    } = req.body;
+    
+    const id_usuario = req.usuario?.id; 
+    const tipo_usuario = req.usuario?.tipo; 
+
+    if (!id_usuario) {
+        return res.status(401).json({ success: false, msg: "Sesión no identificada" });
+    }
+
+    try {
+        const pool = await poolPromise;
+        let id_poliza_final = null;
+
+        if (tipo_usuario === 'Cliente') {
+            const polizaRes = await pool.request()
+                .input('clienteId', sql.UniqueIdentifier, id_usuario)
+                .query(`
+                    SELECT TOP 1 id_poliza 
+                    FROM polizas 
+                    WHERE CAST(id_cliente AS VARCHAR(50)) = CAST(@clienteId AS VARCHAR(50)) 
+                    AND is_deleted = 0
+                `);
+
+            if (polizaRes.recordset.length === 0) {
+                return res.status(404).json({ success: false, msg: "No se encontró una póliza activa para su cuenta" });
+            }
+            id_poliza_final = polizaRes.recordset[0].id_poliza;
+        } else {
+            id_poliza_final = referencia_poliza;
+        }
+
+        await pool.request()
+            .input('poliza', sql.UniqueIdentifier, id_poliza_final)
             .input('monto', sql.Decimal(18, 2), monto_reclamado)
             .input('score', sql.Float, score_confianza_ia)
             .input('veredicto', sql.VarChar(30), veredicto_ia)
+            .input('tipo', sql.VarChar(50), tipo_siniestro)           // <--- NUEVO
+            .input('desc', sql.NVarChar(sql.MAX), descripcion_siniestro) // <--- NUEVO
             .query(`
                 INSERT INTO reclamaciones (
-                    id_reclamacion, 
-                    id_ajustador, 
-                    referencia_poliza, 
-                    fecha_reclamacion, 
-                    monto_reclamado, 
-                    estado_reclamacion, 
-                    is_deleted, 
-                    score_confianza_ia, 
-                    veredicto_ia, 
-                    estado_gestion
+                    id_reclamacion, id_poliza, fecha_reclamacion, 
+                    monto_reclamado, estado_reclamacion, is_deleted, 
+                    score_confianza_ia, veredicto_ia, estado_gestion,
+                    tipo_siniestro, descripcion_siniestro
                 ) 
                 VALUES (
-                    NEWID(), 
-                    @ajustador, 
-                    @poliza, 
-                    SYSUTCDATETIME(), 
-                    @monto, 
-                    'Pendiente', 
-                    0, 
-                    @score, 
-                    @veredicto, 
-                    'Pendiente'
+                    NEWID(), @poliza, SYSUTCDATETIME(), 
+                    @monto, 'Pendiente', 0, @score, @veredicto, 'Pendiente',
+                    @tipo, @desc
                 );
             `);
 
-        // 2. Registrar el evento en los logs forenses para auditoría
         await registrarEvento({
-            usuarioId: id_ajustador,
-            accion: 'Creación de Reclamación Forense',
+            usuarioId: id_usuario,
+            accion: `Siniestro (${tipo_siniestro}) reportado por ${tipo_usuario}`,
             resultado: 'éxito',
             modulo: 'incidentController'
         });
 
         res.status(201).json({ 
             success: true, 
-            msg: "Reclamación procesada y guardada exitosamente" 
+            msg: `Reclamación de ${tipo_usuario} procesada exitosamente` 
         });
 
     } catch (error) {
-        console.error("Error en crearReclamacionCompleta:", error);
-        res.status(500).json({ 
-            success: false, 
-            msg: "Error al guardar la reclamación en la base de datos" 
-        });
+        console.error("❌ Error en crearReclamacionCompleta:", error.message);
+        res.status(500).json({ success: false, msg: "Error interno al guardar en la base de datos" });
     }
 };
 
-/**
- * Guardar evidencia fotográfica (Vinculada a una reclamación)
- */
 export const crearEvidencia = async (req, res) => {
     const { id_reclamacion, url_imagen } = req.body;
-    const usuarioId = req.usuario.id;
+    const usuarioId = req.usuario?.id;
 
     try {
         const pool = await poolPromise;
         await pool.request()
             .input('reclamacion', sql.UniqueIdentifier, id_reclamacion)
             .input('url', sql.NVarChar, url_imagen)
-            .query(`
-                INSERT INTO evidencias_fotos (id_evidencia, id_reclamacion, url_storage) 
-                VALUES (NEWID(), @reclamacion, @url)
-            `);
+            .query(`INSERT INTO evidencias_fotos (id_evidencia, id_reclamacion, url_storage) VALUES (NEWID(), @reclamacion, @url)`);
 
         await registrarEvento({
             usuarioId,
@@ -129,9 +162,8 @@ export const crearEvidencia = async (req, res) => {
             modulo: 'incidentController'
         });
 
-        res.status(201).json({ success: true, msg: "Evidencia guardada" });
+        res.status(201).json({ success: true, msg: "Evidencia vinculada correctamente" });
     } catch (error) {
-        console.error("Error en crearEvidencia:", error);
-        res.status(500).json({ success: false, msg: "Error al cargar evidencia" });
+        res.status(500).json({ success: false, msg: "Error al registrar evidencia" });
     }
 };

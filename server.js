@@ -8,6 +8,7 @@ import { obtenerIncidentes, crearEvidencia, crearReclamacionCompleta } from './c
 import { verificarToken } from './middleware/authMiddleware.js';
 import { crearAjustador } from './controllers/ajustadorController.js';
 import { getAjustadores, getClientes } from './controllers/adminController.js';
+import { obtenerMisReclamaciones } from './controllers/incidentController.js';
 
 // Herramientas de Google Cloud Vertex AI
 import { PredictionServiceClient } from '@google-cloud/aiplatform';
@@ -114,10 +115,12 @@ app.post('/api/auth/ajustadores', crearAjustador);
 app.post('/api/auth/ajustadores', crearAjustador); // Ruta para crear ajustadores, también protegida en producción
 app.get('/api/auth/logs', getLogs); // Nueva ruta para obtener logs forenses, protegida con JWT
 app.post('/api/incidentes/crear', verificarToken, crearReclamacionCompleta);
+app.get('/api/incidentes/mis-reclamaciones', verificarToken, obtenerMisReclamaciones);
+
 
 // --- RUTAS DE INCIDENTES (Protegidas con verificarToken) ---
 app.get('/api/incidentes', verificarToken, obtenerIncidentes);
-app.post('/api/evidencia', verificarToken, crearEvidencia);
+app.post('/api/evidencia', verificarToken, );
 
 // --- ARRANQUE DEL SERVIDOR ---
 const PORT = process.env.PORT || 5000;

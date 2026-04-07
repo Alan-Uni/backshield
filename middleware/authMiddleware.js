@@ -2,29 +2,43 @@ import jwt from 'jsonwebtoken';
 import 'dotenv/config';
 
 export const verificarToken = (req, res, next) => {
-    // IMPORTANTE: El nombre del header debe ser minúsculas o tal cual lo mandas
+    // 1. Extraer el token del header
     const token = req.header('x-auth-token'); 
 
     if (!token) {
         return res.status(401).json({ 
             success: false, 
-            msg: "Se requiere un token para la autenticación" // Aquí sale tu error
+            msg: "Se requiere un token para la autenticación" 
         });
     }
 
     try {
+        // 2. Verificar el token
+        // 'cifrado' ahora contiene: { id, rol, tipo, iat, exp }
         const cifrado = jwt.verify(token, process.env.JWT_SECRET);
-        req.usuario = cifrado.usuario;
+        
+        // 3. Sincronización Crítica:
+        // Como en el Login guardaste los datos directo en el payload,
+        // pasamos 'cifrado' completo a 'req.usuario'.
+        req.usuario = cifrado; 
+        
         next();
     } catch (error) {
-        res.status(401).json({ success: false, msg: 'Token no válido' });
+        console.error("Error de JWT:", error.message);
+        res.status(401).json({ success: false, msg: 'Token no válido o expirado' });
     }
 };
 
-// Requerimiento Forense: Control de acceso por roles
+/**
+ * Requerimiento Forense: Control de acceso por roles
+ * Ajustado para usar req.usuario (que es donde guardamos los datos arriba)
+ */
 export const esAuditor = (req, res, next) => {
-    if (req.user.rol !== 'Auditor') {
-        return res.status(403).json({ message: "Acceso denegado: Se requieren permisos de Auditor" });
+    if (!req.usuario || req.usuario.rol !== 'Auditor') {
+        return res.status(403).json({ 
+            success: false, 
+            message: "Acceso denegado: Se requieren permisos de Auditor" 
+        });
     }
     next();
 };
