@@ -63,6 +63,37 @@ export const obtenerMisReclamaciones = async (req, res) => {
     }
 };
 
+export const obtenerDetalleReclamacion = async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        const pool = await poolPromise;
+        const result = await pool.request()
+            .input('id', sql.UniqueIdentifier, id)
+            .query(`
+                SELECT 
+                    id_reclamacion, 
+                    tipo_siniestro, 
+                    fecha_reclamacion, 
+                    monto_reclamado, 
+                    estado_reclamacion, 
+                    veredicto_ia,
+                    score_confianza_ia,
+                    descripcion_siniestro
+                FROM reclamaciones 
+                WHERE id_reclamacion = @id AND is_deleted = 0
+            `);
+
+        if (result.recordset.length === 0) {
+            return res.status(404).json({ success: false, msg: "Reclamación no encontrada" });
+        }
+
+        res.json({ success: true, data: result.recordset[0] });
+    } catch (error) {
+        res.status(500).json({ success: false, message: "Error al obtener el detalle" });
+    }
+};
+
 /**
  * Crear una reclamación completa (Flujo Híbrido: Cliente o Ajustador)
  */

@@ -37,3 +37,38 @@ export const crearAjustador = async (req, res) => {
         res.status(500).json({ message: "Error al insertar ajustador" });
     }
 };
+
+/**
+ * Obtener todas las reclamaciones con datos de cliente (Bandeja del Analista)
+ */
+export const obtenerIncidentesForense = async (req, res) => {
+    // Usamos el ID del ajustador que viene en el token
+    const id_ajustador = req.usuario.id; 
+
+    try {
+        const pool = await poolPromise;
+        const result = await pool.request()
+            .input('idAjustador', sql.UniqueIdentifier, id_ajustador)
+            .query(`
+                SELECT DISTINCT
+                    r.id_reclamacion, 
+                    c.nombre_cifrado AS cliente, 
+                    r.tipo_siniestro, 
+                    r.score_confianza_ia, 
+                    r.veredicto_ia,
+                    r.estado_gestion
+                FROM reclamaciones r
+                INNER JOIN polizas p ON r.id_poliza = p.id_poliza
+                INNER JOIN clientes c ON p.id_cliente = c.id_cliente
+                LEFT JOIN imagenes_evidencia e ON r.id_reclamacion = e.id_reclamacion
+                WHERE r.is_deleted = 0 
+                AND (e.id_ajustador = @idAjustador OR r.estado_gestion = 'Pendiente')
+                ORDER BY r.id_reclamacion DESC
+            `);
+        
+        res.json({ success: true, data: result.recordset });
+    } catch (error) {
+        console.error("Error en obtenerIncidentesForense:", error);
+        res.status(500).json({ success: false, message: "Error al consultar la bandeja forense" });
+    }
+};
