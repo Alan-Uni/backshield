@@ -144,7 +144,7 @@ export const crearReclamacionCompleta = async (req, res) => {
     }
 };
 
-export const crearEvidencia = async (req, res) => {
+/* export const crearEvidencia = async (req, res) => {
     const { id_reclamacion, url_imagen } = req.body;
     const usuarioId = req.usuario?.id;
 
@@ -165,5 +165,43 @@ export const crearEvidencia = async (req, res) => {
         res.status(201).json({ success: true, msg: "Evidencia vinculada correctamente" });
     } catch (error) {
         res.status(500).json({ success: false, msg: "Error al registrar evidencia" });
+    }
+}; */
+
+export const crearEvidencia = async (req, res) => {
+    try {
+        // 1. Validar que venga un archivo
+        if (!req.file) return res.status(400).json({ message: "No se subió ninguna imagen" });
+
+        // 2. Subir a Azure y obtener la URL
+        const urlAzure = await uploadToAzure(req.file);
+
+        // 3. Datos del cuerpo de la petición (Asegúrate de enviarlos desde el Postman/Frontend)
+        const { id_reclamacion, id_ajustador } = req.body;
+        const scoreIA = 0.85; // Aquí irá la respuesta de Vertex AI después
+
+        // 4. Insertar en SQL Server
+        let pool = await sql.connect(); // Usa tu config de conexión
+        await pool.request()
+            .input('id_reclamacion', sql.UniqueIdentifier, id_reclamacion)
+            .input('id_ajustador', sql.UniqueIdentifier, id_ajustador)
+            .input('url', sql.NVarChar(sql.MAX), urlAzure) // Coincide con nvarchar(MAX)
+            .input('score', sql.Float, scoreIA) // Coincide con float
+            .query(`
+                INSERT INTO imagenes_evidencia 
+                (id_evidencia, id_reclamacion, id_ajustador, url_storage_imagen, resultado_automl_score)
+                VALUES 
+                (NEWID(), @id_reclamacion, @id_ajustador, @url, @score)
+            `);
+
+        res.status(201).json({
+            success: true,
+            message: "Evidencia guardada en Azure y SQL",
+            url: urlAzure
+        });
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: "Error en el servidor" });
     }
 };
