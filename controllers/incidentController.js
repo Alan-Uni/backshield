@@ -198,3 +198,32 @@ export const crearEvidencia = async (req, res) => {
         res.status(500).json({ success: false, msg: "Error al registrar evidencia" });
     }
 };
+
+// Busca la función obtenerIncidentes2 y reemplaza la consulta SQL:
+export const obtenerIncidentes2 = async (req, res) => {
+    try {
+        const pool = await poolPromise;
+        const result = await pool.request()
+            .query(`
+                SELECT 
+                    r.id_reclamacion, 
+                    r.fecha_reclamacion, 
+                    r.tipo_siniestro,
+                    r.monto_reclamado, 
+                    r.score_confianza_ia, 
+                    r.veredicto_ia, 
+                    r.estado_gestion,
+                    c.nombre_cifrado AS nombre_cliente -- Usamos nombre_cifrado de la tabla clientes
+                FROM reclamaciones r
+                INNER JOIN polizas p ON r.id_poliza = p.id_poliza
+                INNER JOIN clientes c ON p.id_cliente = c.id_cliente -- Unión correcta según tu BD
+                WHERE r.is_deleted = 0
+                ORDER BY r.fecha_reclamacion DESC
+            `);
+        
+        res.json({ success: true, data: result.recordset });
+    } catch (error) {
+        console.error("❌ Error en obtenerIncidentes2:", error.message);
+        res.status(500).json({ success: false, message: "Error al consultar incidentes en la base de datos" });
+    }
+};
