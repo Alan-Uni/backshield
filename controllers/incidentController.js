@@ -63,6 +63,37 @@ export const obtenerMisReclamaciones = async (req, res) => {
     }
 };
 
+export const obtenerDetalleReclamacion = async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        const pool = await poolPromise;
+        const result = await pool.request()
+            .input('id', sql.UniqueIdentifier, id)
+            .query(`
+                SELECT 
+                    id_reclamacion, 
+                    tipo_siniestro, 
+                    fecha_reclamacion, 
+                    monto_reclamado, 
+                    estado_reclamacion, 
+                    veredicto_ia,
+                    score_confianza_ia,
+                    descripcion_siniestro
+                FROM reclamaciones 
+                WHERE id_reclamacion = @id AND is_deleted = 0
+            `);
+
+        if (result.recordset.length === 0) {
+            return res.status(404).json({ success: false, msg: "Reclamación no encontrada" });
+        }
+
+        res.json({ success: true, data: result.recordset[0] });
+    } catch (error) {
+        res.status(500).json({ success: false, message: "Error al obtener el detalle" });
+    }
+};
+
 /**
  * Crear una reclamación completa (Flujo Híbrido: Cliente o Ajustador)
  */
@@ -205,3 +236,33 @@ export const crearEvidencia = async (req, res) => {
         res.status(500).json({ message: "Error en el servidor" });
     }
 };
+
+// Busca la función obtenerIncidentes2 y reemplaza la consulta SQL:
+export const obtenerIncidentes2 = async (req, res) => {
+    try {
+        const pool = await poolPromise;
+        const result = await pool.request()
+            .query(`
+                SELECT 
+                    r.id_reclamacion, 
+                    r.fecha_reclamacion, 
+                    r.tipo_siniestro,
+                    r.monto_reclamado, 
+                    r.score_confianza_ia, 
+                    r.veredicto_ia, 
+                    r.estado_gestion,
+                    c.nombre_cifrado AS nombre_cliente -- Usamos nombre_cifrado de la tabla clientes
+                FROM reclamaciones r
+                INNER JOIN polizas p ON r.id_poliza = p.id_poliza
+                INNER JOIN clientes c ON p.id_cliente = c.id_cliente -- Unión correcta según tu BD
+                WHERE r.is_deleted = 0
+                ORDER BY r.fecha_reclamacion DESC
+            `);
+        
+        res.json({ success: true, data: result.recordset });
+    } catch (error) {
+        console.error("❌ Error en obtenerIncidentes2:", error.message);
+        res.status(500).json({ success: false, message: "Error al consultar incidentes en la base de datos" });
+    }
+};
+
