@@ -1,10 +1,9 @@
 import { poolPromise } from '../config/db.js';
 import { registrarEvento } from '../config/logger.js';
+import { uploadToAzure } from '../services/azureService.js';
 import sql from 'mssql';
+// En tu back: routes/incidentes.js
 
-/**
- * Obtener todas las reclamaciones (Bandeja del Analista)
- */
 export const obtenerIncidentes = async (req, res) => {
     try {
         const pool = await poolPromise;
@@ -102,76 +101,71 @@ export const crearReclamacionCompleta = async (req, res) => {
         monto_reclamado, 
         score_confianza_ia, 
         veredicto_ia,
-        tipo_siniestro,       // <--- NUEVO
-        descripcion_siniestro, // <--- NUEVO
-        referencia_poliza 
+        tipo_siniestro,
+        descripcion_siniestro,
+        ubicacion 
     } = req.body;
     
-    const id_usuario = req.usuario?.id; 
-    const tipo_usuario = req.usuario?.tipo; 
-
-    if (!id_usuario) {
-        return res.status(401).json({ success: false, msg: "Sesión no identificada" });
-    }
+    const id_usuario = req.usuario?.id;
+    const tipo_usuario = req.usuario?.tipo;
 
     try {
         const pool = await poolPromise;
-        let id_poliza_final = null;
-
+        
+        // 1. Obtener la póliza del cliente si es necesario
+        let id_poliza_final = req.body.referencia_poliza;
         if (tipo_usuario === 'Cliente') {
             const polizaRes = await pool.request()
                 .input('clienteId', sql.UniqueIdentifier, id_usuario)
-                .query(`
-                    SELECT TOP 1 id_poliza 
-                    FROM polizas 
-                    WHERE CAST(id_cliente AS VARCHAR(50)) = CAST(@clienteId AS VARCHAR(50)) 
-                    AND is_deleted = 0
-                `);
-
-            if (polizaRes.recordset.length === 0) {
-                return res.status(404).json({ success: false, msg: "No se encontró una póliza activa para su cuenta" });
-            }
+                .query(`SELECT TOP 1 id_poliza FROM polizas WHERE id_cliente = @clienteId AND is_deleted = 0`);
+            if (polizaRes.recordset.length === 0) return res.status(404).json({ success: false, msg: "Sin póliza activa" });
             id_poliza_final = polizaRes.recordset[0].id_poliza;
-        } else {
-            id_poliza_final = referencia_poliza;
         }
 
-        await pool.request()
+        // 2. Insertar Reclamación y obtener el ID generado
+        const resultReclamacion = await pool.request()
             .input('poliza', sql.UniqueIdentifier, id_poliza_final)
             .input('monto', sql.Decimal(18, 2), monto_reclamado)
             .input('score', sql.Float, score_confianza_ia)
             .input('veredicto', sql.VarChar(30), veredicto_ia)
-            .input('tipo', sql.VarChar(50), tipo_siniestro)           // <--- NUEVO
-            .input('desc', sql.NVarChar(sql.MAX), descripcion_siniestro) // <--- NUEVO
+            .input('tipo', sql.VarChar(50), tipo_siniestro)
+            .input('desc', sql.NVarChar(sql.MAX), descripcion_siniestro)
             .query(`
+                DECLARE @idTable TABLE (id UNIQUEIDENTIFIER);
                 INSERT INTO reclamaciones (
-                    id_reclamacion, id_poliza, fecha_reclamacion, 
-                    monto_reclamado, estado_reclamacion, is_deleted, 
-                    score_confianza_ia, veredicto_ia, estado_gestion,
-                    tipo_siniestro, descripcion_siniestro
+                    id_reclamacion, id_poliza, fecha_reclamacion, monto_reclamado, 
+                    estado_reclamacion, is_deleted, score_confianza_ia, 
+                    veredicto_ia, estado_gestion, tipo_siniestro, descripcion_siniestro
                 ) 
+                OUTPUT inserted.id_reclamacion INTO @idTable
                 VALUES (
-                    NEWID(), @poliza, SYSUTCDATETIME(), 
-                    @monto, 'Pendiente', 0, @score, @veredicto, 'Pendiente',
-                    @tipo, @desc
+                    NEWID(), @poliza, SYSUTCDATETIME(), @monto, 'Pendiente', 
+                    0, @score, @veredicto, 'Pendiente', @tipo, @desc
                 );
+                SELECT id FROM @idTable;
             `);
 
-        await registrarEvento({
-            usuarioId: id_usuario,
-            accion: `Siniestro (${tipo_siniestro}) reportado por ${tipo_usuario}`,
-            resultado: 'éxito',
-            modulo: 'incidentController'
-        });
+        const id_reclamacion_nueva = resultReclamacion.recordset[0].id;
 
-        res.status(201).json({ 
-            success: true, 
-            msg: `Reclamación de ${tipo_usuario} procesada exitosamente` 
-        });
+        // 3. Si hay imagen, subir a Azure e insertar en imagenes_evidencia
+        if (req.file) {
+            const urlAzure = await uploadToAzure(req.file); // Tu función de Azure
+            await pool.request()
+                .input('id_rec', sql.UniqueIdentifier, id_reclamacion_nueva)
+                .input('url', sql.NVarChar(sql.MAX), urlAzure)
+                .input('score', sql.Float, score_confianza_ia)
+                .query(`
+                    INSERT INTO imagenes_evidencia 
+                    (id_evidencia, id_reclamacion, url_storage_imagen, resultado_automl_score)
+                    VALUES (NEWID(), @id_rec, @url, @score)
+                `);
+        }
+
+        res.status(201).json({ success: true, msg: "Siniestro y evidencia registrados", id: id_reclamacion_nueva });
 
     } catch (error) {
-        console.error("❌ Error en crearReclamacionCompleta:", error.message);
-        res.status(500).json({ success: false, msg: "Error interno al guardar en la base de datos" });
+        console.error("❌ Error:", error.message);
+        res.status(500).json({ success: false, msg: "Error al procesar el siniestro" });
     }
 };
 
