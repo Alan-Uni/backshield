@@ -17,6 +17,8 @@ import { obtenerIncidentes2 } from './controllers/incidentController.js';  // Im
 import { PredictionServiceClient } from '@google-cloud/aiplatform';
 import { helpers } from '@google-cloud/aiplatform';
 import { getLogs } from './controllers/authController.js';
+import multer from 'multer';
+const upload = multer({ storage: multer.memoryStorage() });
 
 const app = express();
 
@@ -117,7 +119,9 @@ app.get('/api/auth/clientes', getClientes);
 app.post('/api/auth/ajustadores', crearAjustador);
 app.post('/api/auth/ajustadores', crearAjustador); // Ruta para crear ajustadores, también protegida en producción
 app.get('/api/auth/logs', getLogs); // Nueva ruta para obtener logs forenses, protegida con JWT
-app.post('/api/incidentes/crear', verificarToken, crearReclamacionCompleta);
+//app.post('/api/incidentes/crear', verificarToken, crearReclamacionCompleta);
+// El orden debe ser: Token -> Multer -> Controlador
+app.post('/api/incidentes/crear', verificarToken, upload.single('imagen'), crearReclamacionCompleta);
 app.get('/api/incidentes/mis-reclamaciones', verificarToken, obtenerMisReclamaciones);
 app.get('/api/incidentes/detalle/:id', verificarToken, obtenerDetalleReclamacion); // <--- ESTA ES VITAL
 app.get('/api/incidentes/forense', verificarToken, obtenerIncidentesForense);
