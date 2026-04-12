@@ -2,7 +2,7 @@ import { poolPromise } from '../config/db.js';
 import { registrarEvento } from '../config/logger.js';
 import { uploadToAzure } from '../services/azureService.js';
 import sql from 'mssql';
-// En tu back: routes/incidentes.js
+import crypto from 'crypto';
 
 export const obtenerIncidentes = async (req, res) => {
     try {
@@ -145,23 +145,39 @@ export const crearReclamacionCompleta = async (req, res) => {
                 SELECT id FROM @idTable;
             `);
 
-        const id_reclamacion_nueva = resultReclamacion.recordset[0].id;
-
+        const id_reclamacion_creada = resultReclamacion.recordset[0].id_reclamacion;
         // 3. Si hay imagen, subir a Azure e insertar en imagenes_evidencia
-        if (req.file) {
-            const urlAzure = await uploadToAzure(req.file); // Tu función de Azure
-            await pool.request()
-                .input('id_rec', sql.UniqueIdentifier, id_reclamacion_nueva)
-                .input('url', sql.NVarChar(sql.MAX), urlAzure)
-                .input('score', sql.Float, score_confianza_ia)
-                .query(`
-                    INSERT INTO imagenes_evidencia 
-                    (id_evidencia, id_reclamacion, url_storage_imagen, resultado_automl_score)
-                    VALUES (NEWID(), @id_rec, @url, @score)
-                `);
-        }
+        // ... dentro de crearReclamacionCompleta ...
 
-        res.status(201).json({ success: true, msg: "Siniestro y evidencia registrados", id: id_reclamacion_nueva });
+if (req.file) {
+    // 1. Generar el hash SHA256 de la imagen
+    const fileHash = crypto
+        .createHash('sha256')
+        .update(req.file.buffer)
+        .digest('hex');
+
+    // 2. Subir a Azure (ya lo tienes)
+    const urlAzure = await uploadToAzure(req.file);
+
+    // 3. Insertar en la tabla imagenes_evidencia
+    await pool.request()
+        .input('id_reclamacion', sql.UniqueIdentifier, id_reclamacion_creada)
+        .input('url', sql.NVarChar(sql.MAX), urlAzure)
+        .input('hash', sql.NVarChar(64), fileHash) // <-- Aquí enviamos el hash
+        .input('score', sql.Float, parseFloat(score_confianza_ia))
+        .query(`
+            INSERT INTO imagenes_evidencia (
+                id_evidencia, 
+                id_reclamacion, 
+                url_storage_imagen, 
+                hash_sha256, 
+                resultado_automl_score
+            )
+            VALUES (NEWID(), @id_reclamacion, @url, @hash, @score)
+        `);
+}
+
+        res.status(201).json({ success: true, msg: "Siniestro y evidencia registrados", id: id_reclamacion_creada });
 
     } catch (error) {
         console.error("❌ Error:", error.message);
