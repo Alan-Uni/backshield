@@ -117,34 +117,34 @@ export const crearReclamacionCompleta = async (req, res) => {
             id_poliza_final = polizaRes.recordset[0].id_poliza;
         }
 
-        const resultReclamacion = await pool.request()
-            .input('poliza', sql.UniqueIdentifier, id_poliza_final)
-            .input('monto', sql.Decimal(18, 2), monto_reclamado)
-            .input('score', sql.Float, score_confianza_ia)
-            .input('veredicto', sql.VarChar(30), veredicto_ia)
-            .input('tipo', sql.VarChar(50), tipo_siniestro)
-            .input('desc', sql.NVarChar(sql.MAX), descripcion_siniestro)
-            .input('lugar', sql.NVarChar(sql.MAX), lugar_incidente) // <--- NUEVO INPUT SQL
-            .query(`
-                DECLARE @idTable TABLE (id UNIQUEIDENTIFIER);
-                INSERT INTO reclamaciones (
-                    id_reclamacion, id_poliza, fecha_reclamacion, monto_reclamado, 
-                    estado_reclamacion, is_deleted, score_confianza_ia, 
-                    veredicto_ia, estado_gestion, tipo_siniestro, descripcion_siniestro,
-                    lugar_incidente -- <--- AÑADIR A LA LISTA DE COLUMNAS
-                ) 
-                OUTPUT inserted.id_reclamacion INTO @idTable
-                VALUES (
-                    NEWID(), @poliza, SYSUTCDATETIME(), @monto, 'Pendiente', 
-                    0, @score, @veredicto, 'Pendiente', @tipo, @desc,
-                    @lugar -- <--- AÑADIR EL VALOR
-                );
-                SELECT id FROM @idTable;
-            `);
-
-        const id_reclamacion_creada = resultReclamacion.recordset[0].id_reclamacion;
-        // 3. Si hay imagen, subir a Azure e insertar en imagenes_evidencia
         // ... dentro de crearReclamacionCompleta ...
+
+const resultReclamacion = await pool.request()
+    .input('poliza', sql.UniqueIdentifier, id_poliza_final)
+    .input('monto', sql.Decimal(18, 2), monto_reclamado)
+    .input('score', sql.Float, score_confianza_ia)
+    .input('veredicto', sql.VarChar(30), veredicto_ia)
+    .input('tipo', sql.VarChar(50), tipo_siniestro)
+    .input('desc', sql.NVarChar(sql.MAX), descripcion_siniestro)
+    .input('lugar', sql.NVarChar(sql.MAX), lugar_incidente)
+    .query(`
+        INSERT INTO reclamaciones (
+            id_reclamacion, id_poliza, fecha_reclamacion, monto_reclamado, 
+            estado_reclamacion, is_deleted, score_confianza_ia, 
+            veredicto_ia, estado_gestion, tipo_siniestro, descripcion_siniestro,
+            lugar_incidente
+        ) 
+        OUTPUT inserted.id_reclamacion -- <--- Simplificamos esto
+        VALUES (
+            NEWID(), @poliza, SYSUTCDATETIME(), @monto, 'Pendiente', 
+            0, @score, @veredicto, 'Pendiente', @tipo, @desc, @lugar
+        );
+    `);
+
+// Cambia la forma de extraer el ID a esta:
+const id_reclamacion_creada = resultReclamacion.recordset[0].id_reclamacion;
+
+console.log("ID Generado:", id_reclamacion_creada); // Agrega este log para confirmar en consola
 
 if (req.file) {
     // 1. Generar el hash SHA256 de la imagen
