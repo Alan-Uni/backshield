@@ -92,10 +92,6 @@ export const obtenerDetalleReclamacion = async (req, res) => {
         res.status(500).json({ success: false, message: "Error al obtener el detalle" });
     }
 };
-
-/**
- * Crear una reclamación completa (Flujo Híbrido: Cliente o Ajustador)
- */
 export const crearReclamacionCompleta = async (req, res) => {
     const { 
         monto_reclamado, 
@@ -103,7 +99,7 @@ export const crearReclamacionCompleta = async (req, res) => {
         veredicto_ia,
         tipo_siniestro,
         descripcion_siniestro,
-        ubicacion 
+        lugar_incidente // <--- CAPTURAMOS EL NUEVO CAMPO
     } = req.body;
     
     const id_usuario = req.usuario?.id;
@@ -112,7 +108,6 @@ export const crearReclamacionCompleta = async (req, res) => {
     try {
         const pool = await poolPromise;
         
-        // 1. Obtener la póliza del cliente si es necesario
         let id_poliza_final = req.body.referencia_poliza;
         if (tipo_usuario === 'Cliente') {
             const polizaRes = await pool.request()
@@ -122,7 +117,6 @@ export const crearReclamacionCompleta = async (req, res) => {
             id_poliza_final = polizaRes.recordset[0].id_poliza;
         }
 
-        // 2. Insertar Reclamación y obtener el ID generado
         const resultReclamacion = await pool.request()
             .input('poliza', sql.UniqueIdentifier, id_poliza_final)
             .input('monto', sql.Decimal(18, 2), monto_reclamado)
@@ -130,26 +124,28 @@ export const crearReclamacionCompleta = async (req, res) => {
             .input('veredicto', sql.VarChar(30), veredicto_ia)
             .input('tipo', sql.VarChar(50), tipo_siniestro)
             .input('desc', sql.NVarChar(sql.MAX), descripcion_siniestro)
+            .input('lugar', sql.NVarChar(sql.MAX), lugar_incidente) // <--- NUEVO INPUT SQL
             .query(`
                 DECLARE @idTable TABLE (id UNIQUEIDENTIFIER);
                 INSERT INTO reclamaciones (
                     id_reclamacion, id_poliza, fecha_reclamacion, monto_reclamado, 
                     estado_reclamacion, is_deleted, score_confianza_ia, 
-                    veredicto_ia, estado_gestion, tipo_siniestro, descripcion_siniestro
+                    veredicto_ia, estado_gestion, tipo_siniestro, descripcion_siniestro,
+                    lugar_incidente -- <--- AÑADIR A LA LISTA DE COLUMNAS
                 ) 
                 OUTPUT inserted.id_reclamacion INTO @idTable
                 VALUES (
                     NEWID(), @poliza, SYSUTCDATETIME(), @monto, 'Pendiente', 
-                    0, @score, @veredicto, 'Pendiente', @tipo, @desc
+                    0, @score, @veredicto, 'Pendiente', @tipo, @desc,
+                    @lugar -- <--- AÑADIR EL VALOR
                 );
                 SELECT id FROM @idTable;
             `);
 
         const id_reclamacion_nueva = resultReclamacion.recordset[0].id;
 
-        // 3. Si hay imagen, subir a Azure e insertar en imagenes_evidencia
         if (req.file) {
-            const urlAzure = await uploadToAzure(req.file); // Tu función de Azure
+            const urlAzure = await uploadToAzure(req.file);
             await pool.request()
                 .input('id_rec', sql.UniqueIdentifier, id_reclamacion_nueva)
                 .input('url', sql.NVarChar(sql.MAX), urlAzure)
