@@ -273,3 +273,40 @@ export const obtenerIncidentes2 = async (req, res) => {
     }
 };
 
+export const obtenerDetalleForense = async (req, res) => {
+    const { id } = req.params;
+    try {
+        const pool = await poolPromise;
+        const result = await pool.request()
+            .input('id', sql.UniqueIdentifier, id)
+            .query(`
+                SELECT 
+                    r.*, 
+                    c.id_cliente, -- Importante para el frontend
+                    c.nombre_cifrado, 
+                    c.telefono, 
+                    c.email_cifrado, -- Solicitado
+                    p.tipo_seguro, 
+                    p.monto_cobertura,
+                    (SELECT url_storage_imagen, resultado_automl_score, deteccion_edicion, hash_sha256 
+                     FROM imagenes_evidencia WHERE id_reclamacion = r.id_reclamacion FOR JSON PATH) as evidencias
+                FROM reclamaciones r
+                INNER JOIN polizas p ON r.id_poliza = p.id_poliza
+                INNER JOIN clientes c ON p.id_cliente = c.id_cliente
+                WHERE r.id_reclamacion = @id
+            `);
+
+        if (result.recordset.length === 0) {
+            return res.status(404).json({ success: false, msg: "Caso no encontrado" });
+        }
+
+        const caso = result.recordset[0];
+        if (caso.evidencias) caso.evidencias = JSON.parse(caso.evidencias);
+
+        res.json({ success: true, data: caso });
+    } catch (error) {
+        console.error("Error detalle forense:", error);
+        res.status(500).json({ success: false, message: "Error al obtener detalle" });
+    }
+};
+
