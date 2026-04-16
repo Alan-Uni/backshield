@@ -35,7 +35,7 @@ const modelGemini = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" }
 // --- MIDDLEWARES ---
 app.use(cors({
     origin: '*', 
-    allowedHeaders: ['Content-Type', 'x-auth-token']
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-auth-token']
 }));
 
 // Límites para soportar Base64 de fotos

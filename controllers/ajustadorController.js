@@ -1,6 +1,7 @@
 import sql from 'mssql';
 import bcrypt from 'bcrypt';
 import { poolPromise } from '../config/db.js';
+import { registrarEvento } from '../config/logger.js';
 
 const sqlConfig = {
     user: process.env.DB_USER,
@@ -16,14 +17,16 @@ const sqlConfig = {
 export const crearAjustador = async (req, res) => {
     const { nombre, numero_empleado, rol, password } = req.body;
 
+
+
+    const adminId = req.usuario?.id || null; // ID del admin que crea al ajustador
+    const ip = req.ip || req.connection.remoteAddress;
     try {
-        // 1. Encriptar la contraseña
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password, salt);
 
         let pool = await sql.connect(sqlConfig);
         
-        // 2. Insertar con el nuevo campo password_hash
         await pool.request()
             .input('nombre', sql.NVarChar, nombre)
             .input('num', sql.VarChar, numero_empleado)
@@ -32,9 +35,25 @@ export const crearAjustador = async (req, res) => {
             .query(`INSERT INTO ajustadores (nombre, numero_empleado, rol, password_hash, is_deleted) 
                     VALUES (@nombre, @num, @rol, @pass, 0)`);
 
+        // LOG DE ÉXITO
+        await registrarEvento({
+            usuarioId: adminId,
+            accion: 'CREAR_AJUSTADOR',
+            resultado: 'exito',
+            ip: ip,
+            detalles: `Se creó ajustador: ${numero_empleado}`
+        });
+
         res.status(201).json({ message: "Ajustador creado con éxito" });
     } catch (error) {
-        console.error(error);
+        // LOG DE ERROR
+        await registrarEvento({
+            usuarioId: adminId,
+            accion: 'CREAR_AJUSTADOR',
+            resultado: 'error',
+            ip: ip,
+            detalles: `Error: ${error.message}`
+        });
         res.status(500).json({ message: "Error al insertar ajustador" });
     }
 };
@@ -124,7 +143,18 @@ export const actualizarEstadoReclamacion = async (req, res) => {
                     id_ajustador = @ajustador
                 WHERE id_reclamacion = @id
             `);
+        const ip = req.ip || req.connection.remoteAddress;
 
+    // Llamada correcta pasando UN SOLO OBJETO con las propiedades que pide tu función
+    await registrarEvento({
+        usuarioId: id_ajustador,    // Se mapea a @usuario
+        accion: 'ACTUALIZACION_DICTAMEN', 
+        resultado: 'exito',         // Importante: tu CHECK pide 'exito' o 'error'
+        ip: ip,
+        detalles: `Reclamación ${id} cambiada a ${estado_reclamacion}`
+    });
+    
+    console.log("Log forense de ShieldLens generado con éxito.");
         res.json({ success: true, msg: "Dictamen ShieldLens guardado con éxito" });
     } catch (error) {
         console.error("Error en ShieldBD:", error.message);
