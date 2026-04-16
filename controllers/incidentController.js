@@ -99,7 +99,8 @@ export const crearReclamacionCompleta = async (req, res) => {
         veredicto_ia,
         tipo_siniestro,
         descripcion_siniestro,
-        lugar_incidente // <--- CAPTURAMOS EL NUEVO CAMPO
+        lugar_incidente,
+        justificacion_ia // <--- 1. Recibimos la variable del body
     } = req.body;
     
     const id_usuario = req.usuario?.id;
@@ -117,94 +118,74 @@ export const crearReclamacionCompleta = async (req, res) => {
             id_poliza_final = polizaRes.recordset[0].id_poliza;
         }
 
-        // ... dentro de crearReclamacionCompleta ...
+        // --- INSERCIÓN EN RECLAMACIONES ---
+        const resultReclamacion = await pool.request()
+            .input('poliza', sql.UniqueIdentifier, id_poliza_final)
+            .input('monto', sql.Decimal(18, 2), monto_reclamado)
+            .input('score', sql.Float, score_confianza_ia)
+            .input('veredicto', sql.VarChar(30), veredicto_ia)
+            .input('tipo', sql.VarChar(50), tipo_siniestro)
+            .input('desc', sql.NVarChar(sql.MAX), descripcion_siniestro)
+            .input('lugar', sql.NVarChar(sql.MAX), lugar_incidente)
+            .input('justificacion', sql.NVarChar(sql.MAX), justificacion_ia) // <--- 2. Definimos el input SQL
+            .query(`
+                INSERT INTO reclamaciones (
+                    id_reclamacion, id_poliza, fecha_reclamacion, monto_reclamado, 
+                    estado_reclamacion, is_deleted, score_confianza_ia, 
+                    veredicto_ia, estado_gestion, tipo_siniestro, descripcion_siniestro,
+                    lugar_incidente, justificacion_ia -- <--- 3. Añadimos la columna
+                ) 
+                OUTPUT inserted.id_reclamacion
+                VALUES (
+                    NEWID(), @poliza, SYSUTCDATETIME(), @monto, 'Pendiente', 
+                    0, @score, @veredicto, 'Pendiente', @tipo, @desc, @lugar, 
+                    @justificacion -- <--- 4. Pasamos el valor
+                );
+            `);
 
-const resultReclamacion = await pool.request()
-    .input('poliza', sql.UniqueIdentifier, id_poliza_final)
-    .input('monto', sql.Decimal(18, 2), monto_reclamado)
-    .input('score', sql.Float, score_confianza_ia)
-    .input('veredicto', sql.VarChar(30), veredicto_ia)
-    .input('tipo', sql.VarChar(50), tipo_siniestro)
-    .input('desc', sql.NVarChar(sql.MAX), descripcion_siniestro)
-    .input('lugar', sql.NVarChar(sql.MAX), lugar_incidente)
-    .query(`
-        INSERT INTO reclamaciones (
-            id_reclamacion, id_poliza, fecha_reclamacion, monto_reclamado, 
-            estado_reclamacion, is_deleted, score_confianza_ia, 
-            veredicto_ia, estado_gestion, tipo_siniestro, descripcion_siniestro,
-            lugar_incidente
-        ) 
-        OUTPUT inserted.id_reclamacion -- <--- Simplificamos esto
-        VALUES (
-            NEWID(), @poliza, SYSUTCDATETIME(), @monto, 'Pendiente', 
-            0, @score, @veredicto, 'Pendiente', @tipo, @desc, @lugar
-        );
-    `);
+        const id_reclamacion_creada = resultReclamacion.recordset[0].id_reclamacion;
 
-// Cambia la forma de extraer el ID a esta:
-const id_reclamacion_creada = resultReclamacion.recordset[0].id_reclamacion;
+        console.log("ID Generado con Justificación:", id_reclamacion_creada);
 
-console.log("ID Generado:", id_reclamacion_creada); // Agrega este log para confirmar en consola
+        if (req.file) {
+            // 1. Generar el hash SHA256 de la imagen
+            const fileHash = crypto
+                .createHash('sha256')
+                .update(req.file.buffer)
+                .digest('hex');
 
-if (req.file) {
-    // 1. Generar el hash SHA256 de la imagen
-    const fileHash = crypto
-        .createHash('sha256')
-        .update(req.file.buffer)
-        .digest('hex');
+            // 2. Subir a Azure
+            const urlAzure = await uploadToAzure(req.file);
 
-    // 2. Subir a Azure (ya lo tienes)
-    const urlAzure = await uploadToAzure(req.file);
+            // 3. Insertar en la tabla imagenes_evidencia
+            await pool.request()
+                .input('id_reclamacion', sql.UniqueIdentifier, id_reclamacion_creada)
+                .input('url', sql.NVarChar(sql.MAX), urlAzure)
+                .input('hash', sql.NVarChar(64), fileHash)
+                .input('score', sql.Float, parseFloat(score_confianza_ia))
+                .query(`
+                    INSERT INTO imagenes_evidencia (
+                        id_evidencia, 
+                        id_reclamacion, 
+                        url_storage_imagen, 
+                        hash_sha256, 
+                        resultado_automl_score
+                    )
+                    VALUES (NEWID(), @id_reclamacion, @url, @hash, @score)
+                `);
+        }
 
-    // 3. Insertar en la tabla imagenes_evidencia
-    await pool.request()
-        .input('id_reclamacion', sql.UniqueIdentifier, id_reclamacion_creada)
-        .input('url', sql.NVarChar(sql.MAX), urlAzure)
-        .input('hash', sql.NVarChar(64), fileHash) // <-- Aquí enviamos el hash
-        .input('score', sql.Float, parseFloat(score_confianza_ia))
-        .query(`
-            INSERT INTO imagenes_evidencia (
-                id_evidencia, 
-                id_reclamacion, 
-                url_storage_imagen, 
-                hash_sha256, 
-                resultado_automl_score
-            )
-            VALUES (NEWID(), @id_reclamacion, @url, @hash, @score)
-        `);
-}
-
-        res.status(201).json({ success: true, msg: "Siniestro y evidencia registrados", id: id_reclamacion_creada });
+        res.status(201).json({ 
+            success: true, 
+            msg: "Siniestro y evidencia registrados con análisis pericial", 
+            id: id_reclamacion_creada 
+        });
 
     } catch (error) {
-        console.error("❌ Error:", error.message);
+        console.error("❌ Error en crearReclamacionCompleta:", error.message);
         res.status(500).json({ success: false, msg: "Error al procesar el siniestro" });
     }
 };
-
-/* export const crearEvidencia = async (req, res) => {
-    const { id_reclamacion, url_imagen } = req.body;
-    const usuarioId = req.usuario?.id;
-
-    try {
-        const pool = await poolPromise;
-        await pool.request()
-            .input('reclamacion', sql.UniqueIdentifier, id_reclamacion)
-            .input('url', sql.NVarChar, url_imagen)
-            .query(`INSERT INTO evidencias_fotos (id_evidencia, id_reclamacion, url_storage) VALUES (NEWID(), @reclamacion, @url)`);
-
-        await registrarEvento({
-            usuarioId,
-            accion: 'Carga de Evidencia Visual',
-            resultado: 'éxito',
-            modulo: 'incidentController'
-        });
-
-        res.status(201).json({ success: true, msg: "Evidencia vinculada correctamente" });
-    } catch (error) {
-        res.status(500).json({ success: false, msg: "Error al registrar evidencia" });
-    }
-}; */
 
 export const crearEvidencia = async (req, res) => {
     try {
@@ -282,10 +263,11 @@ export const obtenerDetalleForense = async (req, res) => {
             .query(`
                 SELECT 
                     r.*, 
-                    c.id_cliente, -- Importante para el frontend
+                    r.justificacion_ia,
+                    c.id_cliente,
                     c.nombre_cifrado, 
                     c.telefono, 
-                    c.email_cifrado, -- Solicitado
+                    c.email_cifrado,
                     p.tipo_seguro, 
                     p.monto_cobertura,
                     (SELECT url_storage_imagen, resultado_automl_score, deteccion_edicion, hash_sha256 

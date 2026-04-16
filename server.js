@@ -6,7 +6,7 @@ import 'dotenv/config';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 // Importación de controladores y middleware
-import { login, registrar } from './controllers/authController.js';
+import { login, registrar, obtenerPerfilCliente } from './controllers/authController.js';
 import { obtenerIncidentes, crearEvidencia, crearReclamacionCompleta } from './controllers/incidentController.js';
 import { verificarToken } from './middleware/authMiddleware.js';
 import { crearAjustador } from './controllers/ajustadorController.js';
@@ -171,6 +171,7 @@ app.get('/api/incidentes/detalle-forense/:id', verificarToken, obtenerDetalleFor
 app.put('/api/incidentes/actualizar-estado/:id', verificarToken, actualizarEstadoReclamacion);
 app.get('/api/incidentes', verificarToken, obtenerIncidentes);
 app.post('/api/evidencia', verificarToken, crearEvidencia );
+app.get('/api/incidentes/perfil-cliente', verificarToken, obtenerPerfilCliente);
 
 // --- ARRANQUE DEL SERVIDOR ---
 const PORT = process.env.PORT || 5000;

@@ -148,3 +148,46 @@ export const getLogs = async (req, res) => {
         res.status(500).json({ message: "Error interno del servidor al recuperar auditoría" });
     }
 };
+
+export const obtenerPerfilCliente = async (req, res) => {
+    try {
+        const pool = await poolPromise;
+        const result = await pool.request()
+            .input('id_cliente', sql.UniqueIdentifier, req.usuario.id)
+            .query(`
+                SELECT TOP 1 
+                    c.nombre_cifrado as nombre,
+                    p.id_poliza,
+                    p.tipo_seguro as [plan], -- Se agregan corchetes aquí
+                    p.monto_cobertura
+                FROM clientes c
+                INNER JOIN polizas p ON c.id_cliente = p.id_cliente
+                WHERE c.id_cliente = @id_cliente AND c.is_deleted = 0
+            `);
+
+        if (result.recordset.length > 0) {
+            res.json({ success: true, data: result.recordset[0] });
+        } else {
+            // Fallback si no tiene póliza
+            const soloNombre = await pool.request()
+                .input('id', sql.UniqueIdentifier, req.usuario.id)
+                .query('SELECT nombre_cifrado as nombre FROM clientes WHERE id_cliente = @id');
+            
+            if(soloNombre.recordset.length > 0) {
+                return res.json({ 
+                    success: true, 
+                    data: { 
+                        nombre: soloNombre.recordset[0].nombre, 
+                        id_poliza: 'PENDIENTE', 
+                        plan: 'S/N', 
+                        monto_cobertura: 0 
+                    } 
+                });
+            }
+            res.status(404).json({ success: false, msg: "Perfil no encontrado" });
+        }
+    } catch (error) {
+        console.error("❌ Error en obtenerPerfilCliente:", error.message);
+        res.status(500).json({ success: false, msg: "Error de servidor" });
+    }
+};
