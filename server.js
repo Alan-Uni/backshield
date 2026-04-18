@@ -23,6 +23,8 @@ import { PredictionServiceClient } from '@google-cloud/aiplatform';
 import { helpers } from '@google-cloud/aiplatform';
 import { getLogs } from './controllers/authController.js';
 import multer from 'multer';
+import { poolPromise } from './config/db.js'; // Ajusta la ruta a tu archivo de conexión
+import { registrarEvento } from './config/logger.js';
 
 const upload = multer({ storage: multer.memoryStorage() });
 const app = express();
@@ -173,12 +175,36 @@ app.get('/api/incidentes', verificarToken, obtenerIncidentes);
 app.post('/api/evidencia', verificarToken, crearEvidencia );
 app.get('/api/incidentes/perfil-cliente', verificarToken, obtenerPerfilCliente);
 
-// --- ARRANQUE DEL SERVIDOR ---
+// --- ARRANQUE DEL SERVIDOR CON LOG DE SISTEMA ---
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
+
+app.listen(PORT, async () => {
     console.log(`\n==============================================`);
     console.log(`🚀 Servidor ShieldLens activo en puerto ${PORT}`);
     console.log(`✨ Gemini Explicabilidad: Hardcoded Active`);
+
     console.log(`🔐 Credenciales Vertex: google-credentials.json`);
+
+   
     console.log(`==============================================\n`);
+
+    try {
+        // Esperamos a que el pool de Azure esté listo
+        const pool = await poolPromise;
+
+        if (pool) {
+            // Registro del evento de sistema (usuarioId: null)
+            await registrarEvento({
+                usuarioId: null, 
+                accion: 'SISTEMA_INICIO_DB',
+                resultado: 'exito',
+                ip: '127.0.0.1', 
+                detalles: `ShieldLens Backend conectado exitosamente a Azure SQL (${process.env.DB_SERVER})`
+            });
+            console.log(`✅ Log de auditoría: Conexión a Azure registrada.`);
+        }
+    } catch (error) {
+        // Si el log falla, el servidor sigue funcionando, pero avisamos en consola
+        console.error(`⚠️ Advertencia Forense: No se pudo registrar el log de inicio:`, error.message);
+    }
 });
