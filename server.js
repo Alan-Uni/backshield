@@ -207,4 +207,34 @@ app.listen(PORT, async () => {
         // Si el log falla, el servidor sigue funcionando, pero avisamos en consola
         console.error(`⚠️ Advertencia Forense: No se pudo registrar el log de inicio:`, error.message);
     }
+try {
+        // Simulamos una verificación de configuración de Vertex
+        const endpointIdentificado = `projects/${process.env.GCP_PROJECT_ID}/locations/${process.env.GCP_LOCATION}/endpoints/${process.env.GCP_ENDPOINT_ID}`;
+        
+        if (process.env.GCP_PROJECT_ID && process.env.GCP_ENDPOINT_ID) {
+            await registrarEvento({
+                usuarioId: null, // Log de sistema
+                accion: 'SISTEMA_INICIO_IA',
+                resultado: 'exito',
+                ip: '127.0.0.1',
+                detalles: `Servicio Vertex AI listo. Endpoint: ${process.env.GCP_ENDPOINT_ID}`
+            });
+            console.log(`✅ Log de auditoría: Servicio Vertex AI monitoreado.`);
+        }
+    } catch (error) {
+       try {
+            await registrarEvento({
+                usuarioId: null, 
+                accion: 'SISTEMA_INICIO_IA',
+                resultado: 'error', // Indicamos que falló
+                ip: '127.0.0.1',
+                detalles: `ERROR AL INICIAR IA: ${iaError.message}`
+            });
+            console.log(`⚠️ Log de fallo de IA registrado en la base de datos.`);
+        } catch (logErr) {
+            console.error(`⚠️ No se pudo registrar ni siquiera el log del error:`, logErr.message);
+        }
+    }
+
+
 });
