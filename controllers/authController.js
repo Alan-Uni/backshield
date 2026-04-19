@@ -207,3 +207,55 @@ export const obtenerPerfilCliente = async (req, res) => {
         res.status(500).json({ success: false, msg: "Error de servidor" });
     }
 };
+
+// controladores/polizaController.js o similar
+export const asignarPoliza = async (req, res) => {
+    const { id_cliente, tipo_seguro} = req.body;
+    const adminId = req.usuario?.id || null;
+    const ip = req.ip || req.headers['x-forwarded-for'] || '0.0.0.0';
+
+    try {
+        const montosConfig = {
+            'Premium': 50000,
+            'Seguro de Auto Premium': 50000, // Por si acaso recibes el nombre largo
+            'Cobertura Amplia': 75000,
+            'Seguro de Auto Cobertura Amplia': 75000,
+            'Deluxe': 100000,
+            'Seguro de Auto Deluxe': 100000
+        };
+
+        // Asignamos el monto basado en el tipo o 0 si no existe
+        const montoCalculado = montosConfig[tipo_seguro] || 0;
+
+        if (montoCalculado === 0) {
+            return res.status(400).json({ message: "Tipo de póliza no válido" });
+        }
+
+
+        let pool = await sql.connect(sqlConfig);
+        
+        // Inserción en la tabla polizas
+        await pool.request()
+            .input('idCliente', sql.UniqueIdentifier, id_cliente)
+            .input('tipo', sql.VarChar(50), tipo_seguro)
+            .input('monto', sql.Decimal(18, 2), montoCalculado) // Usamos el monto calculado
+            .query(`
+                INSERT INTO polizas (id_poliza, id_cliente, tipo_seguro, monto_cobertura, is_deleted)
+                VALUES (NEWID(), @idCliente, @tipo, @monto, 0)
+            `);
+
+        // Registro en Auditoría Forense
+        await registrarEvento({
+            usuarioId: adminId,
+            accion: 'Asignación de Póliza',
+            resultado: 'exito',
+            ip: ip,
+            detalles: `Póliza asignada al cliente ${id_cliente}`
+        });
+
+        res.json({ success: true, message: "Póliza asignada correctamente" });
+    } catch (error) {
+        console.error("Error al asignar póliza:", error);
+        res.status(500).json({ message: "Error al procesar la póliza" });
+    }
+};

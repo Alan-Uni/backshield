@@ -25,6 +25,7 @@ import { getLogs } from './controllers/authController.js';
 import multer from 'multer';
 import { poolPromise } from './config/db.js'; // Ajusta la ruta a tu archivo de conexión
 import { registrarEvento } from './config/logger.js';
+import { asignarPoliza } from './controllers/authController.js';
 
 const upload = multer({ storage: multer.memoryStorage() });
 const app = express();
@@ -163,7 +164,7 @@ app.get('/api/auth/ajustadores', getAjustadores);
 app.get('/api/auth/clientes', getClientes);
 app.post('/api/auth/ajustadores', crearAjustador);
 app.get('/api/auth/logs', getLogs); 
-
+app.post('/api/auth/asignar-poliza', verificarToken, asignarPoliza);
 // --- RUTAS DE INCIDENTES ---
 app.post('/api/incidentes/crear', verificarToken, upload.single('imagen'), crearReclamacionCompleta);
 app.get('/api/incidentes/mis-reclamaciones', verificarToken, obtenerMisReclamaciones);
