@@ -97,12 +97,12 @@ export const login = async (req, res) => {
 };
 export const registrar = async (req, res) => {
     const { nombre, email, telefono, password } = req.body;
-
+    const adminId = req.usuario?.id || null; // ID del admin que crea al ajustador
+    const ip = req.ip || req.headers['x-forwarded-for'] || '0.0.0.0';
     try {
         // Encriptación de seguridad
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password, salt);
-
         let pool = await sql.connect(sqlConfig);
         
         // Inserción en la tabla clientes
@@ -113,11 +113,27 @@ export const registrar = async (req, res) => {
             .input('pass', sql.NVarChar, hashedPassword)
             .query(`INSERT INTO clientes (nombre_cifrado, email_cifrado, telefono, password_hash, is_deleted) 
                     VALUES (@nom, @mail, @tel, @pass, 0)`);
-
+        
+        await registrarEvento({
+            usuarioId: adminId, // Si esto llega undefined, el log fallará
+            accion: 'Registro de Cliente',
+            resultado: 'exito',
+            ip: ip,
+            detalles: `Cliente registrado: ${email}`
+        });
         res.status(201).json({ message: "Cliente registrado con éxito" });
     } catch (error) {
+        await registrarEvento({
+            usuarioId: adminId,
+            accion: 'Registro de Cliente',
+            resultado: 'error',
+            ip: ip,
+            detalles: `Error al registrar cliente: ${error.message}`
+        });
         console.error("Error en registro de cliente:", error);
+        
         res.status(500).json({ message: "Error al conectar con el servidor en el puerto 5000" }); // Mensaje consistente con tu alerta
+        
     }
 };
 
