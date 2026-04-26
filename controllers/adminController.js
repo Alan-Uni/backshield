@@ -31,8 +31,17 @@ export const getClientes = async (req, res) => {
     try {
         let pool = await sql.connect(sqlConfig);
         const result = await pool.request()
-            .query(`SELECT id_cliente, nombre_cifrado, email_cifrado, telefono, is_deleted 
-                    FROM clientes`);
+            .query(`
+                SELECT 
+                    c.id_cliente, 
+                    c.nombre_cifrado, 
+                    c.email_cifrado, 
+                    c.telefono, 
+                    c.is_deleted,
+                    ISNULL(p.tipo_seguro, 'Sin póliza') AS tipo_poliza
+                FROM clientes c
+                LEFT JOIN polizas p ON c.id_cliente = p.id_cliente
+            `);
 
         res.json(result.recordset);
     } catch (error) {
