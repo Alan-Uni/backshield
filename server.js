@@ -2,8 +2,8 @@ import express from 'express';
 import cors from 'cors';
 import 'dotenv/config';
 
-// --- LIBRERÍA PARA LA EXPLICACIÓN ---
-import { GoogleGenerativeAI } from "@google/generative-ai";
+// SDK oficial de Gemini para generar la explicación visual.
+import { GoogleGenAI } from "@google/genai";
 
 // Importación de controladores y middleware
 import { login, registrar, obtenerPerfilCliente } from './controllers/authController.js';
@@ -30,10 +30,15 @@ import { asignarPoliza } from './controllers/authController.js';
 const upload = multer({ storage: multer.memoryStorage() });
 const app = express();
 
-// --- CONFIGURACIÓN GEMINI (HARDCODED PARA EVITAR ERRORES DE LLAVE) ---
-// Nota: Usamos la llave que generaste en AI Studio directamente
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const modelGemini = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
+
+function getGeminiClient() {
+    if (!process.env.GEMINI_API_KEY) {
+        throw new Error('GEMINI_API_KEY no está configurada');
+    }
+
+    return new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+}
 
 // --- MIDDLEWARES ---
 app.use(cors({
@@ -46,7 +51,7 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // --- FUNCIÓN AUXILIAR: GENERAR JUSTIFICACIÓN CON GEMINI ---
-async function generarJustificacion(imageBase64, resultadoIA, confianza) {
+async function generarJustificacion(imageBase64, mimeType, resultadoIA, confianza) {
     const prompt = `
       Actúa como un perito experto en fraudes de seguros automotrices.
       El sistema de detección ha clasificado esta imagen como: ${resultadoIA === 'Falsas' ? 'Sospecha de Fraude' : 'Siniestro Real'} con una confianza del ${confianza}%.
@@ -62,16 +67,25 @@ async function generarJustificacion(imageBase64, resultadoIA, confianza) {
     const imagePart = {
         inlineData: {
             data: imageBase64,
-            mimeType: "image/jpeg"
+            mimeType
         }
     };
 
     try {
-        const result = await modelGemini.generateContent([prompt, imagePart]);
-        const response = await result.response;
-        return response.text();
+        const gemini = getGeminiClient();
+        const response = await gemini.models.generateContent({
+            model: GEMINI_MODEL,
+            contents: [imagePart, { text: prompt }],
+            config: {
+                temperature: 0.2,
+                maxOutputTokens: 220,
+            },
+        });
+
+        const justificacion = response.text?.trim();
+        return justificacion || 'Gemini no devolvió una justificación para esta imagen.';
     } catch (error) {
-        console.error("❌ Error real en Gemini:", error);
+        console.error("❌ Error al generar la justificación con Gemini:", error.message);
         return "Análisis técnico de soporte no disponible por el momento.";
     }
 }
@@ -79,10 +93,14 @@ async function generarJustificacion(imageBase64, resultadoIA, confianza) {
 // --- RUTA DE ANÁLISIS IA (Vertex AI + Gemini) ---
 app.post('/api/ia/analizar', verificarToken, async (req, res) => {
     try {
-        const { imageBase64 } = req.body;
+        const { imageBase64, mimeType = 'image/jpeg' } = req.body;
 
         if (!imageBase64) {
             return res.status(400).json({ success: false, msg: "No se proporcionó imagen" });
+        }
+
+        if (!['image/jpeg', 'image/png', 'image/webp'].includes(mimeType)) {
+            return res.status(400).json({ success: false, msg: "Formato de imagen no soportado" });
         }
 
         // 1. CONFIGURACIÓN VERTEX AI
@@ -132,7 +150,8 @@ app.post('/api/ia/analizar', verificarToken, async (req, res) => {
 
         // 3. LLAMADA A GEMINI PARA LA JUSTIFICACIÓN
         const justificacion = await generarJustificacion(
-            imageBase64, 
+            imageBase64,
+            mimeType,
             etiquetaFinal, 
             (mayorConfianza * 100).toFixed(1)
         );
@@ -182,7 +201,7 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, async () => {
     console.log(`\n==============================================`);
     console.log(`🚀 Servidor ShieldLens activo en puerto ${PORT}`);
-    console.log(`✨ Gemini Explicabilidad: Hardcoded Active`);
+    console.log(`✨ Gemini Explicabilidad: ${process.env.GEMINI_API_KEY ? `activa (${GEMINI_MODEL})` : 'sin configurar'}`);
 
     console.log(`🔐 Credenciales Vertex: google-credentials.json`);
 
